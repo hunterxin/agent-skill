@@ -1,8 +1,0 @@
-{
-  "role": "Dev",
-  "action": "创建",
-  "target": "文档",
-  "description": "为订单模块写接口文档",
-  "priority": "P0-紧急",
-  "note": "今晚交付初稿"
-}
