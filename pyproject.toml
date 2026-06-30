@@ -1,0 +1,154 @@
+# ===========================================================================
+# pyproject.toml —— Python 现代打包配置文件（PEP 517 / 518 / 621）
+# ---------------------------------------------------------------------------
+# 这个文件干两件事：
+#   1. 告诉 `pip` / `build` 这个项目"该怎么被安装/打包"（[build-system]）；
+#   2. 用 PEP 621 标准声明项目元数据（名字、版本、依赖、脚本入口等），
+#      取代了过去 setup.py / setup.cfg 的角色。
+#
+# 改了这个文件之后，记得 `pip install -e ".[dev]"` 重新安装一次，否则像
+# console script、依赖、可选依赖等改动不会生效。
+# ===========================================================================
+
+
+# --------------------------------------------------------------------------
+# [build-system]：构建后端声明（PEP 518）
+# --------------------------------------------------------------------------
+# 任何 PEP 517 兼容的工具（pip、build、uv ...）在打包/安装本项目前，会先
+# 看这一段，按 `requires` 装临时构建依赖，然后调用 `build-backend` 指向的
+# 那个后端来真正生成 wheel / sdist。
+# --------------------------------------------------------------------------
+[build-system]
+# 构建本项目时必须先安装的包。这里只装一个 hatchling（hatch 的构建后端）。
+# 注意：这些依赖只在"构建阶段"生效，不会被安装到运行时环境里。
+requires = ["hatchling"]
+# 构建后端模块的 Python 路径。pip 会 `from hatchling.build import ...`
+# 来生成 wheel。换成别的后端（setuptools.build_meta、poetry.core.masonry.api
+# 等）就能换打包工具，但 [project] 段保持兼容。
+build-backend = "hatchling.build"
+
+
+# --------------------------------------------------------------------------
+# [project]：项目核心元数据（PEP 621）
+# --------------------------------------------------------------------------
+# 这一段的字段名是标准化的，所有支持 PEP 621 的工具读到的内容一致。
+# --------------------------------------------------------------------------
+[project]
+# 发布到 PyPI 时使用的分发名（distribution name），也是 `pip install` 时
+# 用户敲的名字。与 Python 包名（import 时的 `skill_agent`）不必一致。
+name = "skill-agent"
+
+# 版本号。手动维护即可；想自动化可换 hatch-vcs 之类的插件从 git tag 取。
+version = "0.1.0"
+
+# 项目简介——会显示在 PyPI 列表页和 `pip show` 里。
+description = "由 DeepSeek 驱动的 CLI Agent，用来管理并运行 Claude Code 风格的 Skill。"
+
+# 长描述的来源文件。PyPI 项目主页正文会用这个文件渲染（markdown 由后缀推断）。
+readme = "README.md"
+
+# 兼容的 Python 解释器版本范围。低于 3.10 的环境 pip 会直接拒绝安装。
+# 之所以是 3.10+，是因为代码里大量使用了 `X | Y` 类型注解、structural
+# pattern matching 友好的写法、以及 `tomllib` 风格的 typing。
+requires-python = ">=3.10"
+
+# 许可证。这里用 SPDX 表达式的传统写法 { text = "MIT" }，效果等价于
+# `license = "MIT"`（PEP 639 新写法），但兼容性更好。
+license = { text = "MIT" }
+
+# 作者列表。每个元素都是个 inline table；可以同时有 name 和 email。
+authors = [{ name = "hunter" }]
+
+# ----------------------------------------------------------------------
+# 运行时依赖：装本包时一并装进去的东西。
+# ----------------------------------------------------------------------
+# 语法用 PEP 508 规范：`包名 比较符 版本`。
+# 这里只给"下限"不给"上限"，让 pip 可以选最新可用版本——除非你明确知道
+# 上游有破坏性更新，否则别加上限，加了反而会让用户被迫降级解决冲突。
+# ----------------------------------------------------------------------
+dependencies = [
+    # OpenAI Python SDK。DeepSeek 的 API 与它兼容，所以我们直接复用它的
+    # 客户端来调 `chat.completions.create(...)`。1.40+ 是 tool_calls 接口
+    # 稳定的最低版本。
+    "openai>=1.40",
+
+    # click：CLI 框架。cli.py 里所有的 @click.group / @click.command /
+    # @click.option / @click.argument / @click.pass_context 都来自它。
+    "click>=8.1",
+
+    # PyYAML：解析 SKILL.md 顶部的 YAML frontmatter（name / description）。
+    "pyyaml>=6.0",
+
+    # pydantic：留作后续模型/校验扩展的口子，目前代码里没有直接 import，
+    # 但保留是为了让"加新工具时定义参数 schema"成本最低。如果一直没用上，
+    # 可以考虑后续清理。
+    "pydantic>=2.5",
+
+    # rich：终端美化（REPL 的 Panel / Markdown 渲染、CLI 的彩色输出）。
+    "rich>=13.7",
+
+    # prompt_toolkit：REPL 的输入框，提供历史记录、行编辑等功能。
+    "prompt_toolkit>=3.0",
+
+    # python-dotenv：把 .env 文件加载进 os.environ，供 config.py 读取。
+    # 注意 load_dotenv(override=False) —— 真实环境变量优先级高于 .env。
+    "python-dotenv>=1.0",
+]
+
+# ----------------------------------------------------------------------
+# [project.optional-dependencies]：可选依赖组，使用方括号语法触发。
+# ----------------------------------------------------------------------
+# 用法：`pip install -e ".[dev]"` 同时装运行时依赖 + 下面的 dev 组。
+# 适合"只有开发/测试才需要"的包，避免给最终用户多装东西。
+# ----------------------------------------------------------------------
+[project.optional-dependencies]
+dev = [
+    # 测试框架本体。
+    "pytest>=8.0",
+    # pytest-mock 提供了好用的 `mocker` fixture（封装 unittest.mock）。
+    # 虽然本仓库目前主要用 conftest.py 里手写的 ScriptedClient 来 mock
+    # OpenAI 客户端，但保留 pytest-mock 给以后写新测试用。
+    "pytest-mock>=3.12",
+]
+
+
+# --------------------------------------------------------------------------
+# [project.scripts]：console_scripts 入口点（最关键的一段！）
+# --------------------------------------------------------------------------
+# 安装后，pip 会按这里的声明在 PATH 中生成可执行脚本：
+#   左边是命令名（在 shell 里直接敲），右边是 "模块路径:函数名"。
+# 即 `skill-agent` 命令 = 调用 skill_agent/cli.py 里的 main 函数。
+#
+# 因此 `skill-agent chat` 和 `python -m skill_agent.cli chat` 实质走的是
+# 同一个入口（main 是个 @click.group），区别只是触发方式不同。
+# --------------------------------------------------------------------------
+[project.scripts]
+skill-agent = "skill_agent.cli:main"
+
+
+# --------------------------------------------------------------------------
+# [tool.hatch.build.targets.wheel]：hatchling 后端的私有配置
+# --------------------------------------------------------------------------
+# hatch 默认会去猜要打包哪些目录，对于扁平布局（包目录就在仓库根）一般
+# 猜不准，所以这里**显式**告诉它"把 skill_agent/ 当成需要打进 wheel 的
+# Python 包"。少了这一行，`pip install -e .` 之后可能 import 不到。
+# --------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["skill_agent"]
+
+
+# --------------------------------------------------------------------------
+# [tool.pytest.ini_options]：pytest 自己的配置（等价于 pytest.ini）
+# --------------------------------------------------------------------------
+# pytest 启动时会自动读这一段，避免再单开一个 pytest.ini 文件。
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+# 限制 pytest 只从 tests/ 目录收集测试，避免无意间扫到 skills/ 或者
+# example 脚本里的 `test_*` 函数。
+testpaths = ["tests"]
+
+# 默认追加的命令行参数。
+#   -r 控制"测试结尾的简短摘要"包含哪些类别；`a` = all except passed。
+#   也就是说会把 fail / error / skipped / xfail / xpass 全部汇总一遍，
+#   方便一眼看到所有非正常用例。
+addopts = "-ra"
